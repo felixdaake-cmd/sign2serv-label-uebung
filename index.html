@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Label-Übung Sign2ServWeb</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+--navy:#03165E; --blue:#1632F9; --sky:#BED5E7; --sky2:#E8F0F7;
+--green:#5CB94D; --orange:#FBAE40; --text:#03165E; --muted:#5A6690; --bg:#FFFFFF;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:Calibri,"Segoe UI",Arial,sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:20px 16px 28px}
+h1{font-family:"Roboto Mono",monospace;font-size:clamp(18px,3.2vw,24px);margin:0 0 6px;letter-spacing:-.3px}
+.sub{color:var(--muted);margin:0 0 18px;font-size:15px}
+.labels{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;min-height:84px;margin-bottom:22px}
+.label{width:150px;border-radius:10px;background:#fff;border:2px solid var(--navy);padding:10px 12px;cursor:grab;
+touch-action:none;user-select:none;box-shadow:0 3px 0 var(--navy);position:relative;z-index:2}
+.label.sel{outline:3px solid var(--blue);outline-offset:2px}
+.label .code{font-family:"Roboto Mono",monospace;font-weight:700;font-size:22px}
+.label .kind{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+.label .bar{position:absolute;right:8px;top:8px;bottom:8px;width:14px;
+background:repeating-linear-gradient(90deg,var(--navy) 0 2px,transparent 2px 4px)}
+.label.dragging{cursor:grabbing;box-shadow:0 10px 24px rgba(3,22,94,.25)}
+.bottles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.bottle{border-radius:14px;background:var(--sky2);padding:14px 10px 12px;text-align:center;border:2px dashed transparent;
+transition:border-color .15s, background .15s;cursor:pointer}
+.bottle.hover{border-color:var(--blue);background:#dfe8fb}
+.bottle svg{width:70px;height:110px;display:block;margin:0 auto 8px}
+.bottle .name{font-family:"Roboto Mono",monospace;font-weight:700;font-size:15px}
+.bottle .slot{margin-top:8px;min-height:30px;font-family:"Roboto Mono",monospace;font-weight:700;font-size:16px}
+.bottle.done{background:#eaf6e7}
+.bottle.done .slot{color:var(--green)}
+.msg{margin-top:18px;min-height:54px;border-radius:10px;padding:12px 14px;font-size:15px;line-height:1.4;opacity:0}
+.msg.ok{background:#eaf6e7;border-left:5px solid var(--green)}
+.msg.no{background:#fff4e2;border-left:5px solid var(--orange)}
+.final{display:none;margin-top:18px;border-radius:12px;background:var(--navy);color:#fff;padding:18px}
+.final h2{font-family:"Roboto Mono",monospace;font-size:18px;margin:0 0 8px}
+.final p{margin:4px 0}
+.final b{color:var(--sky)}
+button.reset{margin-top:12px;background:#fff;color:var(--navy);border:0;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer;font-size:14px}
+@media (max-width:520px){ .bottle svg{width:52px;height:84px} .label{width:46%} .bottle .name{font-size:13px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>🏷️ Welches Label gehört auf welche Flasche?</h1>
+<p class="sub">Zieh jedes Label auf die passende Probe. Am Handy: erst Label antippen, dann Flasche antippen.</p>
+<div class="labels" id="labels"></div>
+<div class="bottles" id="bottles"></div>
+<div class="msg" id="msg"></div>
+<div class="final" id="final">
+<h2>✅ Alles richtig zugeordnet!</h2>
+<p><b>DW</b> – nur für Ölproben</p>
+<p><b>DWG</b> – nur für Fettproben</p>
+<p><b>DWC</b> – nur für Kühlmittelproben. Handschriftlich ausfüllen, zurzeit <b>nicht</b> über Sign2ServWeb erfassbar.</p>
+<button class="reset" id="reset">Nochmal üben</button>
+</div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js"></script>
+<script>
+(function(){
+var DATA=[
+{id:'oil',   code:'DW',  kind:'Oil',     bottle:'Ölprobe',         fill:'#0122AD', okText:'Richtig! Das <b>DW-Label</b> („Oil“) gehört nur auf Ölproben.'},
+{id:'grease',code:'DWG', kind:'Grease',  bottle:'Fettprobe',       fill:'#265A64', okText:'Genau! Das <b>DWG-Label</b> („Grease“) gehört nur auf Fettproben.'},
+{id:'cool',  code:'DWC', kind:'Coolant', bottle:'Kühlmittelprobe', fill:'#008C95', okText:'Richtig! <b>DWC</b> („Coolant“) ist für Kühlmittel – aber handschriftlich, nicht über die App.'}
+];
+var hints={oil:'Tipp: „Oil“ = Öl. Das Label mit der Kennung <b>DW</b>.',grease:'Tipp: „Grease“ = Fett. Das Label mit der Kennung <b>DWG</b>.',cool:'Tipp: „Coolant“ = Kühlmittel. Das Label mit der Kennung <b>DWC</b>.'};
+var labelsEl=document.getElementById('labels'),bottlesEl=document.getElementById('bottles'),msg=document.getElementById('msg'),fin=document.getElementById('final');
+var selected=null,doneCount=0;
+function bottleSVG(fill){
+return '<svg viewBox="0 0 70 110" aria-hidden="true">'+
+'<rect x="24" y="4" width="22" height="14" rx="3" fill="#03165E"/>'+
+'<path d="M20 20 h30 v10 q12 6 12 20 v48 q0 8 -8 8 h-38 q-8 0 -8 -8 v-48 q0 -14 12 -20z" fill="#fff" stroke="#03165E" stroke-width="3"/>'+
+'<path class="liq" d="M11 62 h48 v36 q0 5 -5 5 h-38 q-5 0 -5 -5z" fill="'+fill+'" opacity=".85"/>'+
+'<rect class="sticker" x="16" y="44" width="38" height="16" rx="2" fill="#BED5E7" opacity="0"/>'+
+'</svg>';
+}
+function shuffle(a){a=a.slice();for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+function build(){
+labelsEl.innerHTML='';bottlesEl.innerHTML='';msg.style.opacity=0;fin.style.display='none';doneCount=0;selected=null;
+shuffle(DATA).forEach(function(d){
+var l=document.createElement('div');l.className='label';l.dataset.id=d.id;
+l.innerHTML='<div class="kind">'+d.kind+'</div><div class="code">'+d.code+'</div><div class="bar"></div>';
+labelsEl.appendChild(l);attachDrag(l);
+});
+shuffle(DATA).forEach(function(d){
+var b=document.createElement('div');b.className='bottle';b.dataset.id=d.id;
+b.innerHTML=bottleSVG(d.fill)+'<div class="name">'+d.bottle+'</div><div class="slot"></div>';
+b.addEventListener('click',function(){ if(selected) tryDrop(selected,b); });
+bottlesEl.appendChild(b);
+});
+anime({targets:'.label',translateY:[-30,0],opacity:[0,1],delay:anime.stagger(90),duration:600,easing:'easeOutBack'});
+anime({targets:'.bottle',translateY:[30,0],opacity:[0,1],delay:anime.stagger(90,{start:200}),duration:600,easing:'easeOutQuad'});
+}
+function show(type,html){
+msg.className='msg '+type;msg.innerHTML=html;
+anime.remove(msg);anime({targets:msg,opacity:[0,1],translateY:[8,0],duration:350,easing:'easeOutQuad'});
+}
+function bottleAt(x,y){
+var list=bottlesEl.querySelectorAll('.bottle:not(.done)');
+for(var i=0;i<list.length;i++){var r=list[i].getBoundingClientRect();if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom)return list[i];}
+return null;
+}
+function attachDrag(l){
+var sx,sy,moved=false,over=null;
+l.addEventListener('pointerdown',function(e){
+if(l.classList.contains('used'))return;
+sx=e.clientX;sy=e.clientY;moved=false;l.setPointerCapture(e.pointerId);
+});
+l.addEventListener('pointermove',function(e){
+if(sx===undefined)return;
+var dx=e.clientX-sx,dy=e.clientY-sy;
+if(!moved&&Math.abs(dx)+Math.abs(dy)>6){moved=true;l.classList.add('dragging');}
+if(moved){
+l.style.transform='translate('+dx+'px,'+dy+'px) rotate('+(dx/40)+'deg)';
+var b=bottleAt(e.clientX,e.clientY);
+if(over&&over!==b)over.classList.remove('hover');
+over=b;if(b)b.classList.add('hover');
+}
+});
+l.addEventListener('pointerup',function(e){
+if(sx===undefined)return;sx=undefined;l.classList.remove('dragging');
+if(over)over.classList.remove('hover');
+if(!moved){ // tap mode
+document.querySelectorAll('.label').forEach(function(x){x.classList.remove('sel')});
+selected=(selected===l)?null:l; if(selected)l.classList.add('sel');
+return;
+}
+var b=bottleAt(e.clientX,e.clientY);
+if(b){tryDrop(l,b);} else {snapBack(l);}
+over=null;
+});
+}
+function snapBack(l){
+anime({targets:l,translateX:0,translateY:0,rotate:0,duration:450,easing:'easeOutElastic(1,.6)',
+complete:function(){l.style.transform='';}});
+}
+function tryDrop(l,b){
+l.classList.remove('sel');selected=null;
+var id=l.dataset.id,d=DATA.filter(function(x){return x.id===id})[0];
+if(id===b.dataset.id){
+var lr=l.getBoundingClientRect(),br=b.querySelector('svg').getBoundingClientRect();
+var cur=new DOMMatrix(getComputedStyle(l).transform);
+var tx=cur.m41+(br.left+br.width/2)-(lr.left+lr.width/2),ty=cur.m42+(br.top+br.height*.45)-(lr.top+lr.height/2);
+l.classList.add('used');
+anime({targets:l,translateX:tx,translateY:ty,scale:.3,opacity:0,rotate:0,duration:500,easing:'easeInQuad',complete:function(){
+l.style.visibility='hidden';
+b.classList.add('done');b.querySelector('.slot').textContent='✓ '+d.code;
+anime({targets:b.querySelector('.sticker'),opacity:[0,1],duration:300,easing:'linear'});
+anime({targets:b,scale:[1,1.06,1],duration:500,easing:'easeOutQuad'});
+anime({targets:b.querySelector('.liq'),translateY:[0,-3,0],duration:600,easing:'easeInOutSine'});
+}});
+show('ok','✅ '+d.okText);
+doneCount++;
+if(doneCount===DATA.length){
+setTimeout(function(){fin.style.display='block';anime({targets:fin,opacity:[0,1],translateY:[16,0],duration:600,easing:'easeOutQuad'});msg.style.opacity=0;},900);
+}
+} else {
+anime({targets:b,translateX:[0,-10,10,-6,6,0],duration:450,easing:'easeInOutSine'});
+snapBack(l);
+show('no','❌ Das passt nicht. '+hints[b.dataset.id]);
+}
+}
+document.getElementById('reset').addEventListener('click',build);
+build();
+})();
+</script>
+</body>
+</html>
